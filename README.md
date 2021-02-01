@@ -18,8 +18,19 @@ and it supports acceleration and decceleration.
 Basic Rotary table:
 
 ![NE_RotaryTableConnector.png](https://github.com/1bigpig/NE_RotaryTable/blob/main/NE_RotaryTableConnector.png)
-4pin phone jack   rotary table Ucontroller
-1 GND	            p5	y2	GND
-2 I2C Clock		    p3	y4	CLOCK
-3 I2C Datar		    p2	y3	DATA
-4 +12v				    p1	y1	+12V
+4pin phone jack
+
+1 GND
+
+2 I2C Clock
+
+3 I2C Data
+
+4 +12v
+
+![NE_uController.png](https://github.com/1bigpig/NE_RotaryTable/blob/main/NE_uController.png)
+rotary table Ucontroller
+p5	y2	GND
+p3	y4	CLOCK
+p2	y3	DATA
+p1	y1	+12V
