@@ -1,4 +1,4 @@
-[best viewed with a monospaced font]
+[best viewed in a monospace font]
 # NE_RotaryTable
 NextEngine 3D scanner rotary table based on an Arduino Uno using a 28BYJ-48 stepper motor/ULN2003 stepper driver.
 
@@ -23,8 +23,8 @@ Rotary table:
 \
 4pin phone jack to connect to NextEngine\
 1 GND\
-2 I2C Clock\
-3 I2C Data\
+2 I2C Clock (SCL)\
+3 I2C Data  (SDA)\
 4 +12v\
 \
 ![NE_uController.png](https://github.com/1bigpig/NE_RotaryTable/blob/main/NE_uController.png)
