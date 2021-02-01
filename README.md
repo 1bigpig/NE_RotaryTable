@@ -6,7 +6,7 @@ All NextEngine data was acquired with an i2c bus sniffer.  No disassembly or cod
 was performed on any NextEngine hardware or software.  Thanks to dot_bob for helping me 
 with some of the i2c data analysis.
 
-Some code based on I2C Scanner from Arduino.cc
+Some code based on I2C Scanner from Arduino.cc.
 Attribution to Krodal, Nick Gammon, Anonymous
 
 This sketch uses the AccelStepper library by Mike McCauley, which can be found:
@@ -18,14 +18,11 @@ and it supports acceleration and decceleration.
 Basic Rotary table:
 
 ![NE_RotaryTableConnector.png](https://github.com/1bigpig/NE_RotaryTable/blob/main/NE_RotaryTableConnector.png)
+
 4pin phone jack
-
 1 GND
-
 2 I2C Clock
-
 3 I2C Data
-
 4 +12v
 
 ![NE_uController.png](https://github.com/1bigpig/NE_RotaryTable/blob/main/NE_uController.png)
