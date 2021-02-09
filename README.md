@@ -39,10 +39,11 @@ p1	y1	+12V
 I2C Addresses:\
 0x18 Unknown but the NextEngine seems to call it the most.  No commands came from the NextEngine was it was an i2c "target"\
 0x1A Rotary Table -- the address we will be using\
-0x1B 5th axis rotary mover.  It appears to be similar to the rotary table commands, but have not investigated.  If you connect\
-to Arduinos with similar programming (you have to change the i2c address AND the ID code (see below)) it will enable the\
-"Multiaxis drive" and then either crash or shutdown the NextEngine.  Much more work is needs here, but I have no access to a \
-Multidrive, so that work with have to wait.\
+0x1B 5th axis/tilt axis.\
+It appears to be similar to the rotary table commands, but have not investigated.  If you connect 
+to Arduinos with similar programming (you have to change the i2c address AND the ID code (see below)) it will enable the 
+"Multiaxis drive" and then either crash or shutdown the NextEngine.  Much more work is needs here, but I have no access to a 
+Multidrive, so that work with have to wait.
 \
 \
 I2C commands and responses:\
