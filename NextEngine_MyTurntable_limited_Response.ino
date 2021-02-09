@@ -27,17 +27,18 @@
 #include <Wire.h>
 #include <AccelStepper.h>
 
+
 // Motor pin definitions
-#define motorPin1  2     // IN1 on the ULN2003 driver 1
-#define motorPin2  3     // IN2 on the ULN2003 driver 1
-#define motorPin3  4     // IN3 on the ULN2003 driver 1
-#define motorPin4  5     // IN4 on the ULN2003 driver 1
+#define motorPin1  2     // IN1 on the ULN2003 driver 1 -- A
+#define motorPin2  3     // IN2 on the ULN2003 driver 1 -- B
+#define motorPin3  4     // IN3 on the ULN2003 driver 1 -- C
+#define motorPin4  5     // IN4 on the ULN2003 driver 1 -- D
 /*
 // Swap pin directions for direct solder board to Uno
-#define motorPin1  5     // IN1 on the ULN2003 driver 1 
-#define motorPin2  4     // IN2 on the ULN2003 driver 1
-#define motorPin3  3     // IN3 on the ULN2003 driver 1
-#define motorPin4  2     // IN4 on the ULN2003 driver 1
+#define motorPin1  5     // IN1 on the ULN2003 driver 1 -- A 
+#define motorPin2  4     // IN2 on the ULN2003 driver 1 -- B
+#define motorPin3  3     // IN3 on the ULN2003 driver 1 -- C
+#define motorPin4  2     // IN4 on the ULN2003 driver 1 -- D
 */
 
 // Response high and low bytes for 0xF5,0x0A commands
@@ -231,6 +232,11 @@ r:f5 81 00 00 0a e3 c2 5b 00 00 00 00 00 00 00 04
         respondByte[20]=16;           //number of bytes in response, index=1
 
         indexLoc+=moveSteps;           //Update to new table index ultimate position
+        signed long index=0;          //index holds the results of Table Location divided by 1/2 table steps
+        index=indexLoc/48600;            //divide by half of total table steps per rev
+        if (index %2) {               //Are we even or odd result?
+          indexMark=(index*48600);    //if we are odd, update index mark to current table location
+        }
 
         firstPass=false;
         inMotion=true;
@@ -336,11 +342,6 @@ w: 5f 01 00 08 5c d6 fc ff ff 10 27 15 02   left turn [extra byte in command] CC
         inMotion=false;                       //Set motion to false--need to issue starting commands before actual move takes place
         stepper.setCurrentPosition(0);        //Reset stepper position to zero, so we can use relative position of command
 
-        signed long index=0;          //index holds the results of Table Location divided by 1/2 table steps
-        index=index/48600;            //divide by half of total table steps per rev
-        if (index %2) {               //Are we even or odd result?
-          indexMark=(index*48600);    //if we are odd, update index mark to current table location
-        }
         break;
           
       case 0x0A:                                  //5F 0A 00 01 8D D9                       -- Initialize/update memory/verify ID command
