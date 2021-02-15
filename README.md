@@ -63,10 +63,10 @@ Example of commands:\
 w: 5f 01 00 08 5f 2a 03 00 00 10 27 02    right turn CW\
 w: 5f 01 00 08 5c d6 fc ff ff 10 27 15 02   left turn [extra byte in command] CCW\
   [F5 81 00 08]---------------------------------header of report\
-              [?? ??] --------------------------unknown at this time\
-                    [## ## ##]------------------24bit number in degrees (negative for CCW)\
+              [??]------------------------------unknown at this time\
+                 [## ## ## ##]------------------32 bit signed big endian. number is steps  (negative for CCW)\
                              [10 27]------------unknown at this time (10000 in decimal: maybe total steps per revolution of table or 10000ms to complete move)\
-                                   [15]---------if 0x15 then CW.  If this byte is missing it is CCW\
+                                   [15]---------if 0x15 then CW (maybe).  If this byte is missing it is CCW\
                                    [02:02]------unknown
                                    
                                    
@@ -78,10 +78,9 @@ r:f5 81 00 00 0a 8f bc 5b 00 00 00 00 00 00 12 04\
 r:f5 81 00 00 0a e3 c2 5b 00 00 00 00 00 00 00 04\
  [F5 81 00 00] ------------------------------------header of report\
              [0A] ---------------------------------Number of response bytes [0:##]\
-                [?? ??]----------------------------unknown \
-                      [## ## ##]-------------------Current location in degrees +CW /-CCW\
-                    ^^---------[??]----------------unknown (copy of this number +1 when index mark is tripped [maybe not true])\
-                                  [## ## ##]-------Holds location when index on table is tripped\
+                [??]-------------------------------unknown \
+                   [## ## ## ##]-------------------32 bit signed big endian. Current location in degrees +CW /-CCW\
+                               [## ## ## ##]-------Holds location when index on table is tripped\
                                            [00]----status 0x00 stopped/done moving\
                                            [06]----status 0x06 starting motion/accellerating\
                                            [0A]----status 0x0A moving (issued while in motion)\
@@ -114,32 +113,33 @@ F5 82 00 00 09 69 30 30 30 36 30 31 06 11 07\
 This is the most common i2c command/reponse.  It seems to act as a "I am alive" message between the NextEngine and the rotary table.
 
 # Theory of Operation of Arduino code
-The code is pretty basic.  There are a few a things that will help understand what the code is doing and what an actual rotary table does.\
-First:  The rotary table responds about ever degree* moved with either "starting, in motion, slowing down or stopped".  The NextEngine only\
-seems to really care about the "starting" and "stopped" responses.  It uses the "starting" to know that the table has actually started to move\
-and the "stopped" position is what is used to calculate "rotary table alignment".  So the program is feeding it the same final location in all\
-the commands because the stepper library does not offer a postion update--in fact, it is a blocking routine.  The I2C commands are interrupt driven,\
-so it will still provide a response even if the table is in motion (blocked in the stepper library movement routine).\
-* The NextEngine rotary table command move is smaller than a rotary degree.  95 movement degrees equals 90 degrees on the real rotary table.\
-380 movements command degrees equals 1 full rotation on the rotary table.  I suspect this is due to integer number of steps to make a single degree and\
-avoid floating point math on the PIC chip.
+The code is pretty basic.  There are a few a things that will help understand what the code is doing and what an actual rotary table does.
+First:  The rotary table is programmed in "native" steps (97200 is a full rotation) and responds with current step location and a
+"starting, in motion, slowing down or stopped". To help avoid floating point math or rounding errors, we are converting steps to degrees and
+then degrees to OUR native stepper steps. The NextEngine only seems to really care about the "starting" and "stopped" responses.  It uses the
+"starting" to know that the table has actually started to move and the "stopped" position is what is used to calculate "rotary table alignment".
+So the program is feeding it the same final location in all the commands because the stepper library does not offer a postion update--in fact, it
+is a blocking routine.  The I2C commands are interrupt driven, so it will still provide a response even if the table is in motion (blocked in the
+stepper library movement routine).
 
-Second:  I did enough to mimic a NextEngine rotary table.  This is not a full emulation.  There are some bytes that I am unable to decypher and do not\
-seem to make a difference in basic rotary table functionality.  I do see where it could cause problems/issues trying to emulate a "Multidrive" but that\
-is beyond the scope of this project.  This project came about because NextEngines currently can be found "inexpensively" on places like eBay, but all\
-seem to be missing the rotary table.  If they DO include the rotary table, then tend to want 4x to 5x the price of "bare" units.  And to be honest, without\
+Second:  I did enough to mimic a NextEngine rotary table.  This is not a full emulation.  There are some bytes that I am unable to decypher and do not
+seem to make a difference in basic rotary table functionality.  I do see where it could cause problems/issues trying to emulate a "Multidrive" but that
+is beyond the scope of this project.  This project came about because NextEngines currently can be found "inexpensively" on places like eBay, but all
+seem to be missing the rotary table.  If they DO include the rotary table, then tend to want 4x to 5x the price of "bare" units.  And to be honest, without
 the rotary table, these units are near useless.
 
-Third:  I did not include any "hook up" images of the Arduino to the NextEngine nor the stepper driver.  If you are making a rotary table for a NextEngine\
-I figure the stepper driver hardware you have will not be the exact same as the stepper hardware I have.  The library requires just a few lines of code\
-changed to support step/direction stepper drivers and much larger stepper motors.  Also this project, while not advanced in the slightest, is targeted to a\
-more advanced hobbiest or professional who wants to scan something heavier than the NextEngine table can support.
+Third:  I did not include any "hook up" images of the Arduino to the NextEngine nor the stepper driver.  If you are making a rotary table for a NextEngine
+I figure the stepper driver hardware you have will not be the exact same as the stepper hardware I have.  The library requires just a few lines of code
+changed to support step/direction stepper drivers and much larger stepper motors.  Also this project, while not advanced in the slightest, is targeted to a
+more advanced hobbiest or professional who wants to scan something heavier than the NextEngine table can support.\
+[update] working on a rotary table design that I will post to Thingiverse along with a photo of my completed rotary table.
 
-Lastly:  The NextEngine only allows about 10 seconds after the laser scanner reset to "home" to allow your table to reach the next position.  This seems to\
-be fixed in the NextEngine hardware.  If you are moving a heavy object for have a really slow table, increase the number of scans.  The table has less distance\
-to move but still has the same amount of time to move 22.5 degrees as it does 90 degrees.  If your too slow, the scanner WILL start scanning while the object\
+Lastly:  The NextEngine only allows about 10 seconds after the laser scanner reset to "home" to allow your table to reach the next position.  This seems to
+be fixed in the NextEngine hardware.  If you are moving a heavy object for have a really slow table, increase the number of scans.  The table has less distance
+to move but still has the same amount of time to move 22.5 degrees as it does 90 degrees.  If your too slow, the scanner WILL start scanning while the object
 is still in motion.
 
-Good luck!
-Bruce Clark
-02/01/2021
+Good luck!\
+Bruce Clark\
+02/01/2021\
+updated 2-9-21\

@@ -20,15 +20,28 @@
 //
 // All other code and mistakes are mine.
 // Bruce Clark 1-30-2021
+//
+// Update 2/5/2021 expanded destination and IndexMark of 32 bit signed numbers
+// Update 2/8/2021 fixed IndexMark math bug and added I2C activity indicator to pin 13 LED
+// Update 2/13/2021 used a FLOAT to convert NE steps to native steps. Added full 0x81 command responses (no longer limited responses)
  
 #include <Wire.h>
 #include <AccelStepper.h>
 
+
 // Motor pin definitions
-#define motorPin1  2     // IN1 on the ULN2003 driver 1
-#define motorPin2  3     // IN2 on the ULN2003 driver 1
-#define motorPin3  4     // IN3 on the ULN2003 driver 1
-#define motorPin4  5     // IN4 on the ULN2003 driver 1
+/*
+#define motorPin1  2     // IN1 on the ULN2003 driver 1 -- A
+#define motorPin2  3     // IN2 on the ULN2003 driver 1 -- B
+#define motorPin3  4     // IN3 on the ULN2003 driver 1 -- C
+#define motorPin4  5     // IN4 on the ULN2003 driver 1 -- D
+*/
+
+// Swap pin directions for direct solder board to Uno
+#define motorPin1  5     // IN1 on the ULN2003 driver 1 -- A 
+#define motorPin2  4     // IN2 on the ULN2003 driver 1 -- B
+#define motorPin3  3     // IN3 on the ULN2003 driver 1 -- C
+#define motorPin4  2     // IN4 on the ULN2003 driver 1 -- D
 
 
 // Response high and low bytes for 0xF5,0x0A commands
@@ -56,29 +69,48 @@ uint8_t PICmem[256]={0x02,0x03,0x00,0x01,0x06,0x07,0x04,0x05,0x0A,0x0B,0x08,0x09
   bool            inMotion=false;       //We have a new move command
   bool            locReset=false;       //reset position flag (loc=0)
   bool            firstPass=false;      //Lets start the motion from this command
+  bool            decele=false;         //Are we slowing down?
+  int             decelePass=3;         //There should be 3 deceleration responses before stop command
   signed long     indexLoc=0;           //Where is the turntable
-  signed long     moveDegree=0;         //Degrees to move
+  signed long     moveSteps=0;          //Steps to move
+  float           moveDegrees=0;        //Steps to move
+  signed long     indexMark=0;          //There the index mark position is located
+  signed long     mySteps=0;            //Steps to move
 
-  int             oneDegree=11;        // Number of steps in one degree of table movement [11.3 really 1 degree on table]
-
+/*
+//  There are 97200 steps required to make a full rotation on a real NE table
+//  270 steps = 1 degree of table movement
+//
+//  float         myStepperRatio=((4096*(47/9))/97200);   //myStepperRation=0.2200640146319159, round to 0.2200 results in 99.997% accurancy for full rev
+// 
 // Initialize with pin sequence IN1-IN3-IN2-IN4 for using the AccelStepper with 28BYJ-48
-// 4076 = 1 full turn @ half-step rotation
+// 4096 = 1 full turn @ half-step rotation
+// 2048 = 1 full turn @ full-step rotation
+// 47 tooth wheel
+// 9 tooth pinion
+*/
+int ledPin = 13;  // LED connected to digital pin 13
 
-//AccelStepper stepper(AccelStepper::HALF4WIRE , motorPin1, motorPin3, motorPin2, motorPin4);   //Normal direction
-AccelStepper stepper(AccelStepper::HALF4WIRE , motorPin1, motorPin3, motorPin4, motorPin2);     //Reverse direction
+AccelStepper stepper(AccelStepper::HALF4WIRE , motorPin1, motorPin3, motorPin2, motorPin4);   //Normal direction
+//AccelStepper stepper(AccelStepper::HALF4WIRE , motorPin1, motorPin3, motorPin4, motorPin2);     //Reverse direction
 
 void setup()
 {
+//  Wire.begin(0x18);                   //0x18 is unknown
 //  Wire.begin(0x1B);                   //0x1B is the main 5th axis turntable address (I think)
   Wire.begin(0x1A);                     //0x1A is the main turntable address
-  Wire.onRequest(eventHandleRequestReplyHandler);
-  Wire.onReceive(receiveEvent);         // register event
+  Wire.onRequest(i2cRequest);
+  Wire.onReceive(i2cReceiveEvent);         // register event
 
 // stepper motor setup commands -- This will be different for different stepper motors and tables
-  stepper.setMaxSpeed(200.0);
-  stepper.setAcceleration(1000.0);
+  stepper.setMaxSpeed(750.0);
+  stepper.setAcceleration(200.0);
   stepper.setCurrentPosition(0);          //Reset stepper position
-  stepper.setSpeed(200);
+  stepper.setSpeed(600);
+
+
+  pinMode(ledPin, OUTPUT);  // sets the digital pin 13 as output
+
 }
 
 bool getDataAvailable()
@@ -96,12 +128,12 @@ int checkSum(int c)    //b is the number of byte to calculate; return checksum v
         b^=respondByte[a];
     }
     return b;
-
 }
 
 
-void eventHandleRequestReplyHandler()          // #2 Finish request, implement received data
+void i2cRequest()          // #2 Finish request, implement received data
 {
+
   switch (readByte[1])
     {
     case 0x01:            //Distance to move [bytes 6->8 is 24bit "degrees", neg #= CW. pos=CCW] [5f 01 00 08 5c d6 fc ff ff 10 27 15 02]
@@ -110,7 +142,7 @@ void eventHandleRequestReplyHandler()          // #2 Finish request, implement r
       respondByte[2]=0x00;
       respondByte[3]=0x00;
       respondByte[4]=0x00;
-      respondByte[5]=0xF4;
+      respondByte[5]=checkSum(4);
       respondByte[6]=0x00;
       respondByte[20]=6;    //number of bytes in response, index=1
       break;
@@ -121,7 +153,7 @@ void eventHandleRequestReplyHandler()          // #2 Finish request, implement r
       respondByte[2]=0x00;
       respondByte[3]=0x00;
       respondByte[4]=0x00;
-      respondByte[5]=0xF0;
+      respondByte[5]=checkSum(4);
       respondByte[6]=0x00;
       respondByte[20]=6;    //number of bytes in response, index=1
       break;
@@ -154,7 +186,7 @@ void eventHandleRequestReplyHandler()          // #2 Finish request, implement r
       respondByte[11]=0x31;
       respondByte[12]=0x06;
       respondByte[13]=0x11;
-      respondByte[14]=0x07;
+      respondByte[14]=checkSum(13);
       respondByte[15]=0x00;
       respondByte[20]=15;    //number of bytes in response, index=1
       break;
@@ -172,10 +204,9 @@ r:f5 81 00 00 0a 8f bc 5b 00 00 00 00 00 00 12 04
 r:f5 81 00 00 0a e3 c2 5b 00 00 00 00 00 00 00 04
  [F5 81 00 00] ------------------------------------header of report
              [0A] ---------------------------------Number of response bytes [0:##]
-                [?? ??]----------------------------unknown 
-                      [## ## ##]-------------------Current location in degrees +CW /-CCW
-                    ^^---------[??]----------------unknown (copy of this number +1 when index mark is tripped [maybe not true])
-                                  [## ## ##]-------Holds location when index on table is tripped
+                [??]-------------------------------unknown 
+                   [## ## ## ##]-------------------Current location in steps +CW /-CCW
+                               [## ## ## ##]-------Holds location when index on table is tripped
                                            [00]----status 0x00 stopped/done moving
                                            [06]----status 0x06 starting motion/accellerating
                                            [0A]----status 0x0A moving (issued while in motion)
@@ -183,33 +214,34 @@ r:f5 81 00 00 0a e3 c2 5b 00 00 00 00 00 00 00 04
                                               [##]-8bit XOR checksum [0:14]
 
  */
-      
-      
+      respondByte[0] =0xF5;
+      respondByte[1] =0x81;
+      respondByte[2] =0x00;
+      respondByte[3] =0x00;
+      respondByte[4] =0x0A;
+      respondByte[5] =0x7f;                               //unknown byte
+      respondByte[6] =(byte) (indexLoc & 0xff);           //low byte
+      respondByte[7] =(byte) ((indexLoc >> 8) & 0xff);    //low word
+      respondByte[8] =(byte) ((indexLoc >> 16) & 0xff);   //high word
+      respondByte[9] =(byte) ((indexLoc >> 24) & 0xff);   //high word
+      respondByte[10] =(byte) (indexMark & 0xff);         //low byte
+      respondByte[11] =(byte) ((indexMark >> 8) & 0xff);  //low word
+      respondByte[12] =(byte) ((indexMark >> 16) & 0xff); //high word
+      respondByte[13] =(byte) ((indexMark >> 24) & 0xff); //high word
+
       if (firstPass)                  //First pass "Starting Motion" response
       {
-        respondByte[0] =0xF5;
-        respondByte[1] =0x81;
-        respondByte[2] =0x00;
-        respondByte[3] =0x00;
-        respondByte[4] =0x0A;
-        respondByte[5] =0x7f;                             //unknown byte
-        respondByte[6] =0xff;                             //unknown byte
-        respondByte[7]=(byte) (indexLoc & 0xff);          //low byte
-        respondByte[8]=(byte) ((indexLoc >> 8) & 0xff);   //high byte
-        if (indexLoc>=0) {
-          respondByte[9]=0x00;
-        } else {
-          respondByte[9]=0xFF;        //if less than zero, make it FF (24bit signed number)
-        }
-        respondByte[10]=0x00;  
-        respondByte[11]=0x00;
-        respondByte[12]=0x00;
-        respondByte[13]=0x00;
         respondByte[14]=0x06;         //in motion 0a moving, 12 slowing/stopping, 00 stopped, 06 starting
         respondByte[15]=checkSum(14);
         respondByte[16]=0x00;   
         respondByte[20]=16;           //number of bytes in response, index=1
 
+        indexLoc+=moveSteps;           //Update to new table index ultimate position
+        signed long index=0;          //index holds the results of Table Location divided by 1/2 table steps
+        index=indexLoc/48600;            //divide by half of total table steps per rev
+        if (index %2) {               //Are we even or odd result?
+          indexMark=(index*48600);    //if we are odd, update index mark to current table location
+        }
         firstPass=false;
         inMotion=true;
         break;      
@@ -217,61 +249,49 @@ r:f5 81 00 00 0a e3 c2 5b 00 00 00 00 00 00 00 04
 
       if (!inMotion)                  // "Stopped" response
       {
-        respondByte[0] =0xF5;
-        respondByte[1] =0x81;
-        respondByte[2] =0x00;
-        respondByte[3] =0x00;
-        respondByte[4] =0x0A;
-        respondByte[5] =0x7f;                             //unknown byte
-        respondByte[6] =0xff;                             //unknown byte
-        respondByte[7]=(byte) (indexLoc & 0xff);          //low byte
-        respondByte[8]=(byte) ((indexLoc >> 8) & 0xff);   //high byte
-        if (indexLoc>=0) {
-          respondByte[9]=0x00;
-        } else {
-          respondByte[9]=0xFF;        //if less than zero, make it FF (24bit signed number)
+        if (decele)                 // Are we slowing down?  If yes, then respond with decele flag
+        {
+          respondByte[14]=0x12;   //in motion 0a moving, 12 slowing/stopping, 00 stopped, 06 starting
+          respondByte[15]=checkSum(14);
+          respondByte[16]=0x00;   
+          respondByte[20]=16;     //number of bytes in response, index=1
+          decelePass--;
+          if (decelePass==0)
+          {
+            decele=false;
+            decelePass=3;
+          }
+          break;
         }
-        respondByte[10]=0x00;  
-        respondByte[11]=0x00;
-        respondByte[12]=0x00;
-        respondByte[13]=0x00;
-        respondByte[14]=0x00;   //in motion 0a moving, 12 slowing/stopping, 00 stopped, 06 starting
+        else                        // We are stopped. Respond with STOPPED flag
+          {
+              respondByte[14]=0x00;   //in motion 0a moving, 12 slowing/stopping, 00 stopped, 06 starting
+              respondByte[15]=checkSum(14);
+              respondByte[16]=0x00;   
+              respondByte[20]=16;     //number of bytes in response, index=1
+              break;
+          } 
+      }
+      else
+      {                  // default "in Motion" command response
+        respondByte[14]=0x0A;   //in motion 0a moving, 12 slowing/stopping, 00 stopped, 06 starting
         respondByte[15]=checkSum(14);
         respondByte[16]=0x00;   
-        respondByte[20]=16;     //number of bytes in response, index=1
-
-        break;
-      } else {                  // default "in Motion" command response
-      
-      respondByte[0] =0xF5;
-      respondByte[1] =0x81;
-      respondByte[2] =0x00;
-      respondByte[3] =0x00;
-      respondByte[4] =0x0A;
-      respondByte[5] =0x7f;                             //unknown byte
-      respondByte[6] =0xff;                             //unknown byte
-      respondByte[7]=(byte) (indexLoc & 0xff);          //low byte
-      respondByte[8]=(byte) ((indexLoc >> 8) & 0xff);   //high byte
-      if (indexLoc>=0) {
-        respondByte[9]=0x00;
-      } else {
-        respondByte[9]=0xFF;        //if less than zero, make it FF (24bit signed number)
-      }
-      respondByte[10]=0x00;                             //unknown byte  
-      respondByte[11]=0x00;                             //LSB of index mark on table (24 bit signed number--same format at indexLoc)
-      respondByte[12]=0x00;                             //MB of index mark on table
-      respondByte[13]=0x00;                             //MSB of index mark on table
-      respondByte[14]=0x0A;   //in motion 0a moving, 12 slowing/stopping, 00 stopped, 06 starting
-      respondByte[15]=checkSum(14);
-      respondByte[16]=0x00;   
-      respondByte[20]=16;    //number of bytes in response, index=1
+        respondByte[20]=16;    //number of bytes in response, index=1
+        decele=true;
       }
     }
     Wire.write(respondByte,respondByte[20]);
 }
 
-void receiveEvent (int numBytes)
+void i2cReceiveEvent (int numBytes)
 {
+//  digitalWrite(ledPin, 1);  // sets the LED --Slow method
+  PORTB ^= _BV(PB5);    //Toggle LED
+//  PORTB |= _BV(PB5);    //Set LED
+//  PORTB &= ~_BV(PB5);   //Clear LED
+
+  
   int a=0;
   if (numBytes > 0)
   {
@@ -298,8 +318,8 @@ Example of commands:
 w: 5f 01 00 08 5f 2a 03 00 00 10 27 02    right turn CW
 w: 5f 01 00 08 5c d6 fc ff ff 10 27 15 02   left turn [extra byte in command] CCW
   [F5 81 00 08]---------------------------------header of report
-              [?? ??] --------------------------unknown at this time
-                    [## ## ##]------------------24bit number in degrees (negative for CCW)
+              [??] -----------------------------unknown at this time
+                 [## ## ## ##]------------------24bit number in degrees (negative for CCW)
                              [10 27]------------unknown at this time (10000 in decimal: maybe total steps per revolution of table or 10000ms to complete move)
                                    [15]---------if 0x15 then CW.  If this byte is missing it is CCW
                                    [02:02]------unknown
@@ -307,16 +327,28 @@ w: 5f 01 00 08 5c d6 fc ff ff 10 27 15 02   left turn [extra byte in command] CC
 
     switch (readByte[1])
     {
-      case 0x01:                                  //5F 01 00 08 5C D6 FC FF FF 10 27 15 02  -- MOVE command
-        moveDegree=(readByte[7]<<8) + readByte[6];    //move amount.  Command is a signed integer and move is relative to current position
-        firstPass=true;                 //first pass through location response
-        inMotion=false;                 //Set motion to false--need to issue starting commands before actual move takes place
-        stepper.setCurrentPosition(0);  //Reset stepper position to zero, so we can use relative position of command
-        indexLoc+=moveDegree;           //Update to new table index ultimate position
+      case 0x01:                              //5F 01 00 08 5C D6 FC FF FF 10 27 15 02  -- MOVE command
+        moveSteps=(readByte[8]<<24) +(readByte[7]<<16) +(readByte[6]<<8) + readByte[5];    //move amount.  Command is a signed integer and move is relative to current position
+        moveDegrees=(moveSteps*0.22);         //convert navtive steps to OUR steps.  0.220 conversion factor works out to 99.97% accurancy
+        mySteps=moveDegrees+0.5;              // Convert (with rounding) back to signed long
+        firstPass=true;                       //first pass through location response
+        inMotion=false;                       //Set motion to false--need to issue starting commands before actual move takes place
+        decele=false;                         //set decele to false--we are not decelerating since we are not moving yet.
+        stepper.setCurrentPosition(0);        //Reset stepper position to zero, so we can use relative position of command
+
+/*
+        if (moveSteps>0) {
+          indexMark=0;
+        } else {
+          indexMark=-1;
+        }
+*/
         break;
           
       case 0x0A:                                  //5F 0A 00 01 8D D9                       -- Initialize/update memory/verify ID command
         indexLoc=0;                     //Reset the table index location to zero
+        indexMark=0;                     //Reset the table index location to zero
+        stepper.setCurrentPosition(0);  //Reset stepper position to zero, so we can use relative position of command
         break;
     }
 }
@@ -327,10 +359,22 @@ void loop()
     if (inMotion)
     {
      //put move commands here
-      stepper.runToNewPosition(oneDegree*moveDegree);
+      stepper.runToNewPosition(mySteps);
       stepper.setCurrentPosition(0);          //Reset stepper position
-      inMotion=false;
       stepper.disableOutputs();       //Turn coils off
+      inMotion=false;
     }
+/*/
+//    Testing stepper motor speeds and steps per rotation
+      stepper.setMaxSpeed(750.0);
+//      stepper.setMaxSpeed(200.0);
+
+      stepper.setAcceleration(200.0);
+//      stepper.runToNewPosition(-21390);        //Full rotation
+      stepper.runToNewPosition(-5347);        //90' rotation
+      stepper.setCurrentPosition(0);          //Reset stepper position
+//      stepper.setSpeed(1000);
+//      delay(1000);
+*/
 }
 
